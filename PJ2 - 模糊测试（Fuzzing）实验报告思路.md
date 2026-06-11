@@ -122,6 +122,33 @@ else:
 - 漏洞需要较长特定输入时可能错过
 - 不考虑覆盖率反馈，无法感知哪些种子触发了新代码
 
+#### 4.2.3 CoverageSizePowerSchedule — 基于覆盖范围的调度（组员 D 实现，可选扩展）
+
+**设计动机**
+
+能在单次执行中触及更多代码行的种子，说明它包含了更多的有效前置状态或能穿透更深层的逻辑分支。因此设计 `CoverageSizePowerSchedule`：**种子覆盖行数越多，分配的能量越高**。
+
+**能量公式**
+
+```python
+if coverage_size == 0:
+    energy = min_energy      # 1e-6 — 零覆盖种子给最低能量
+else:
+    energy = coverage_size * 0.1
+```
+
+使用 0.1 的缩放因子避免覆盖行数差异过大导致能量两极分化，设置最小值 `1e-6` 保证所有种子在归一化中都有非零概率。
+
+**三种调度策略总对比**
+
+| 维度 | PathPowerSchedule | SizePowerSchedule | CoverageSizePowerSchedule |
+|---|---|---|---|
+| 调度依据 | 路径频率 | 输入长度 | 覆盖行数 |
+| 反馈类型 | 灰盒 | 黑盒 | 灰盒 |
+| 计算开销 | MD5 + 字典 | `len()` | `len(coverage)` |
+| 冷启动表现 | 退化为均匀随机 | 即刻有效 | 即刻有效 |
+| 适用场景 | 路径分支多的目标 | 长度敏感目标 | 代码量大、分支深的目标 |
+
 ### 4.3 持久化与框架优化
 
 请说明你们如何处理 seed 持久化、结果落盘和长时间运行时的内存控制问题。可包括：
@@ -140,7 +167,7 @@ else:
 |---|---|---|---|
 | `--sample` | `int` (1-4) | `4` | 选择被测样例程序 |
 | `--run-time` | `int` | `300` | 运行时长（秒） |
-| `--schedule` | `str` (`path`, `size`) | `path` | 调度策略选择（**新增**） |
+| `--schedule` | `str` (`path`, `size`, `coverage`) | `path` | 调度策略选择（**新增**） |
 | `--output-dir` | `str` | `_result` | 结果持久化目录 |
 | `--quiet` | `flag` | `False` | 禁用状态表打印 |
 
@@ -151,6 +178,7 @@ def build_schedule(schedule_name: str) -> PowerSchedule:
     schedule_map = {
         "path": PathPowerSchedule,
         "size": SizePowerSchedule,
+        "coverage": CoverageSizePowerSchedule,
     }
     return schedule_map[schedule_name]()
 ```
@@ -165,6 +193,9 @@ python main.py --sample 1 --run-time 10 --schedule path
 
 # 使用输入长度调度
 python main.py --sample 1 --run-time 10 --schedule size
+
+# 使用覆盖范围调度
+python main.py --sample 1 --run-time 10 --schedule coverage
 
 # 等价于默认行为
 python main.py --sample 1 --run-time 10
@@ -182,9 +213,9 @@ python main.py --sample 1 --run-time 10
 - 操作系统：Windows 11
 - 项目路径：`simple_fuzzer/`
 
-### 5.2 SizePowerSchedule 单元测试
+### 5.2 调度策略单元测试
 
-使用 5 个不同长度的 seed 构建 population，验证能量分配和归一化：
+**SizePowerSchedule** — 5 个不同长度的 seed：
 
 ```
 len=  0  energy=1.000000    ← 空字符串最高能量
@@ -194,7 +225,17 @@ len=  8  energy=0.125000
 len=100  energy=0.010000    ← 长字符串被压低但不归零
 ```
 
-结论：能量与长度成反比，空字符串获最高能量，归一化和接近 1.0，`choose()` 正常执行。
+**CoverageSizePowerSchedule** — 5 个不同覆盖行数的 seed：
+
+```
+cov= 0  energy=0.0000       ← 零覆盖 = 最小能量
+cov= 1  energy=0.1000
+cov= 2  energy=0.2000
+cov= 3  energy=0.3000
+cov=10  energy=1.0000       ← 10行覆盖 = 最高能量
+```
+
+结论：能量分配符合预期，归一化和接近 1.0，`choose()` 正常执行。
 
 ### 5.3 集成测试结果（10 秒短跑）
 
@@ -202,21 +243,25 @@ len=100  energy=0.010000    ← 长字符串被压低但不归零
 |--------|----------|------------|-------------|-------------|---------------|
 | 1 | path | 12,843 | 5 | 6 | 10 |
 | 1 | size | 10,209 | 5 | 6 | 10 |
+| 1 | coverage | 13,332 | 5 | 6 | 10 |
 | 2 | path | 73,661 | 5 | 4 | 15 |
 | 3 | path | 123,164 | 4 | 4 | 6 |
 | 3 | size | 137,918 | 5 | 5 | 8 |
+| 3 | coverage | 128,754 | 4 | 4 | 6 |
 | 4 | path | 8,999 | 746 | 0 | 593 |
 
 ### 5.4 结果分析
 
-1. **路径频率调度 (path) 已验证**：所有 4 个 sample 的 `Total Paths` 均能增长，`Last New Path` 正确显示时间差，覆盖率统计正常。
+1. **三种调度策略均正常完成**：所有测试中 `Total Paths` 能增长，`Last New Path` 正确显示时间差，覆盖率统计正常。
 
-2. **SizePowerSchedule 与 PathPowerSchedule 对比分析**：
-   - Sample 1：两者覆盖率和崩溃数持平，size 的执行量略低（短输入获得更高能量，但受限于变异策略的随机性）
-   - **Sample 3 亮点**：size 比 path 多发现 **1 条路径**（5 vs 4）、**1 个崩溃**（5 vs 4）、**2 行覆盖**（8 vs 6），且执行量更高（137K vs 123K）。这是因为 Sample 3 的分支逻辑（如 `s[0] == 'F'`、`s[1] == 'D'`）对输入长度敏感，短输入在变异后更可能精准命中条件
-   - Sample 4：HTML 解析器的路径数量极大（746），size 策略对这类代码量大的目标意义有限
+2. **SizePowerSchedule 表现突出**（Sample 3）：比 path 多发现 1 条路径、1 个崩溃、2 行覆盖，执行量更高（137K vs 123K）。这是因为 Sample 3 的分支逻辑（`s[0] == 'F'`、`s[1] == 'D'`）对长度敏感，短输入变异后更可能精准命中条件。
 
-3. **调度策略互补性**：path 依赖覆盖率反馈，适合发现新路径；size 是静态策略，冷启动即刻有效，对简单/短分支目标可能更高效。
+3. **CoverageSizePowerSchedule**：Sample 3 表现与 path 持平，Sample 1 执行量略高于 path。因为初始 seed 覆盖信息有限，在短跑中未能充分发挥优势。
+
+4. **调度策略互补性**：
+   - path：依靠路径频率反馈，适合长时间运行发现稀有路径
+   - size：冷启动即刻有效，对长度敏感目标高效
+   - coverage：覆盖行多的 seed 获高能，适合代码量大、分支深的目标
 
 ### 5.5 典型输出截图（示例）
 

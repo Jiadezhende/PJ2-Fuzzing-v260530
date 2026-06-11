@@ -6,6 +6,7 @@ from fuzzer.path_grey_box_fuzzer import PathGreyBoxFuzzer
 from runner.function_coverage_runner import FunctionCoverageRunner
 from schedule.path_power_schedule import PathPowerSchedule
 from schedule.size_power_schedule import SizePowerSchedule
+from schedule.coverage_power_schedule import CoverageSizePowerSchedule
 from schedule.power_schedule import PowerSchedule
 from samples.samples import sample1, sample2, sample3, sample4
 from utils.object_utils import dump_object, load_object
@@ -39,9 +40,10 @@ def parse_args():
     parser.add_argument("--run-time", type=int, default=300,
                         help="Fuzzing duration in seconds")
     parser.add_argument("--schedule", type=str, default="path",
-                        choices=("path", "size"),
+                        choices=("path", "size", "coverage"),
                         help="Scheduling strategy: 'path' for path-frequency-based, "
-                             "'size' for input-length-based")
+                             "'size' for input-length-based, "
+                             "'coverage' for coverage-size-based")
     parser.add_argument("--output-dir", default="_result",
                         help="Directory used to persist the run result")
     parser.add_argument("--quiet", action="store_true",
@@ -54,6 +56,7 @@ def build_schedule(schedule_name: str) -> PowerSchedule:
     schedule_map = {
         "path": PathPowerSchedule,
         "size": SizePowerSchedule,
+        "coverage": CoverageSizePowerSchedule,
     }
     schedule_cls = schedule_map[schedule_name]
     return schedule_cls()
