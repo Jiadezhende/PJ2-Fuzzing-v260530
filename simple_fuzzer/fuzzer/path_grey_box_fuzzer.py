@@ -1,17 +1,26 @@
 import time
-from typing import Any, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fuzzer.grey_box_fuzzer import GreyBoxFuzzer
+from runner.runner import Runner
 from schedule.path_power_schedule import PathPowerSchedule
 from runner.function_coverage_runner import FunctionCoverageRunner
 from utils.object_utils import get_md5_of_object
+from utils.seed import Seed
 
 
 class PathGreyBoxFuzzer(GreyBoxFuzzer):
     """Count how often individual paths are exercised."""
 
-    def __init__(self, seeds: List[str], schedule: PathPowerSchedule, is_print: bool):
-        super().__init__(seeds, schedule, False)
+    def __init__(
+            self,
+            seeds: List[str],
+            schedule: PathPowerSchedule,
+            is_print: bool,
+            output_dir: str = "_result",
+            snapshot_interval: int = 1000,
+            max_population: int = 1000):
+        super().__init__(seeds, schedule, False, output_dir, snapshot_interval, max_population)
         self.is_print = is_print
 
         self.seen_paths: Set[str] = set()
@@ -53,6 +62,21 @@ class PathGreyBoxFuzzer(GreyBoxFuzzer):
         path = tuple(sorted(coverage))
         return get_md5_of_object(path)
 
+    def snapshot_extra(self) -> Dict[str, Any]:
+        return {
+            "total_paths": self.total_paths,
+            "seen_paths": self.seen_paths,
+            "path_frequency": getattr(self.schedule, "path_frequency", {}),
+        }
+
+    def persist_path_seed(self, path_id: str, coverage) -> Seed:
+        seed = Seed(self.inp, coverage)
+        seed.path_id = path_id
+        self.population.append(seed)
+        self.last_new_seed = seed
+        self.persist_seed(seed, "new_path")
+        return seed
+
     def run(self, runner: FunctionCoverageRunner) -> Tuple[Any, str]:  # type: ignore
         """Inform scheduler about path frequency"""
         existing_seeds = set(self.population)
@@ -67,10 +91,18 @@ class PathGreyBoxFuzzer(GreyBoxFuzzer):
             self.seen_paths.add(path_id)
             self.last_path_time = time.time()
             self.total_paths = len(self.seen_paths)
+            if self.last_new_seed is None and outcome == Runner.PASS:
+                self.persist_path_seed(path_id, runner.coverage())
 
         for seed in self.population:
             if seed in existing_seeds:
                 continue
             seed.path_id = path_id
+            if (seed is self.last_new_seed
+                    and path_id is not None
+                    and getattr(seed, "saved_reason", None) == "new_coverage"):
+                self.persist_seed(seed, "new_coverage")
+
+        self.trim_population()
 
         return result, outcome

@@ -17,6 +17,8 @@ class Seed:
         self.path_id: Optional[str] = None
         self.created_at = time.time()
         self.saved_path: Optional[str] = None
+        self.saved_reason: Optional[str] = None
+        self.saved_at: Optional[float] = None
 
     def __str__(self) -> str:
         """Returns data as string representation of the seed"""

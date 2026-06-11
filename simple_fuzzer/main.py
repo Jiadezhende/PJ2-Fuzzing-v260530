@@ -70,9 +70,15 @@ if __name__ == "__main__":
     seeds = load_object(corpus_path)
 
     schedule = build_schedule(args.schedule)
-    grey_fuzzer = PathGreyBoxFuzzer(seeds=seeds, schedule=schedule, is_print=not args.quiet)
+    grey_fuzzer = PathGreyBoxFuzzer(
+        seeds=seeds,
+        schedule=schedule,
+        is_print=not args.quiet,
+        output_dir=args.output_dir,
+    )
     start_time = time.time()
     grey_fuzzer.runs(f_runner, run_time=args.run_time)
+    grey_fuzzer.persist_snapshot("final")
 
     res = Result(grey_fuzzer.covered_line, set(grey_fuzzer.crash_map.values()), start_time, time.time())
     output_path = os.path.join(args.output_dir, f"Sample-{args.sample}.pkl")
