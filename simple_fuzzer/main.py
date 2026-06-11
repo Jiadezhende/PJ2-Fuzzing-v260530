@@ -50,9 +50,15 @@ if __name__ == "__main__":
     f_runner = FunctionCoverageRunner(target_function)
     seeds = load_object(corpus_path)
 
-    grey_fuzzer = PathGreyBoxFuzzer(seeds=seeds, schedule=PathPowerSchedule(), is_print=not args.quiet)
+    grey_fuzzer = PathGreyBoxFuzzer(
+        seeds=seeds,
+        schedule=PathPowerSchedule(),
+        is_print=not args.quiet,
+        output_dir=args.output_dir,
+    )
     start_time = time.time()
     grey_fuzzer.runs(f_runner, run_time=args.run_time)
+    grey_fuzzer.persist_snapshot("final")
 
     res = Result(grey_fuzzer.covered_line, set(grey_fuzzer.crash_map.values()), start_time, time.time())
     output_path = os.path.join(args.output_dir, f"Sample-{args.sample}.pkl")
