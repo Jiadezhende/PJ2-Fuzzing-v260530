@@ -5,6 +5,9 @@ import time
 from fuzzer.path_grey_box_fuzzer import PathGreyBoxFuzzer
 from runner.function_coverage_runner import FunctionCoverageRunner
 from schedule.path_power_schedule import PathPowerSchedule
+from schedule.size_power_schedule import SizePowerSchedule
+from schedule.coverage_power_schedule import CoverageSizePowerSchedule
+from schedule.power_schedule import PowerSchedule
 from samples.samples import sample1, sample2, sample3, sample4
 from utils.object_utils import dump_object, load_object
 
@@ -36,11 +39,27 @@ def parse_args():
                         help="Target sample program to fuzz")
     parser.add_argument("--run-time", type=int, default=300,
                         help="Fuzzing duration in seconds")
+    parser.add_argument("--schedule", type=str, default="path",
+                        choices=("path", "size", "coverage"),
+                        help="Scheduling strategy: 'path' for path-frequency-based, "
+                             "'size' for input-length-based, "
+                             "'coverage' for coverage-size-based")
     parser.add_argument("--output-dir", default="_result",
                         help="Directory used to persist the run result")
     parser.add_argument("--quiet", action="store_true",
                         help="Disable the status table output")
     return parser.parse_args()
+
+
+def build_schedule(schedule_name: str) -> PowerSchedule:
+    """根据名称构建对应的调度策略实例"""
+    schedule_map = {
+        "path": PathPowerSchedule,
+        "size": SizePowerSchedule,
+        "coverage": CoverageSizePowerSchedule,
+    }
+    schedule_cls = schedule_map[schedule_name]
+    return schedule_cls()
 
 
 if __name__ == "__main__":
@@ -50,9 +69,10 @@ if __name__ == "__main__":
     f_runner = FunctionCoverageRunner(target_function)
     seeds = load_object(corpus_path)
 
+    schedule = build_schedule(args.schedule)
     grey_fuzzer = PathGreyBoxFuzzer(
         seeds=seeds,
-        schedule=PathPowerSchedule(),
+        schedule=schedule,
         is_print=not args.quiet,
         output_dir=args.output_dir,
     )
