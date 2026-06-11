@@ -1,5 +1,7 @@
 import random
-from typing import Any
+
+# 单次变异输出的最大长度，防止插入类策略叠加导致输入无限膨胀
+MAX_INPUT_LENGTH = 4096
 
 
 def insert_random_character(s: str) -> str:
@@ -112,7 +114,7 @@ def interesting_random_bytes(s: str) -> str:
     return data.decode('utf-8', errors='ignore')
 
 
-def havoc_random_insert(s: str):
+def havoc_random_insert(s: str) -> str:
     """
     基于 AFL 变异算法策略中的 random havoc 实现随机插入
     随机选取一个位置，插入一段的内容，其中 75% 的概率是插入原文中的任意一段随机长度的内容，25% 的概率是插入一段随机长度的 bytes
@@ -145,7 +147,7 @@ def havoc_random_insert(s: str):
     return new_data.decode('utf-8', errors='ignore')
 
 
-def havoc_random_replace(s: str):
+def havoc_random_replace(s: str) -> str:
     """
     基于 AFL 变异算法策略中的 random havoc 实现随机替换
     随机选取一个位置，替换随后一段随机长度的内容，其中 75% 的概率是替换为原文中的任意一段随机长度的内容，25% 的概率是替换为一段随机长度的 bytes
@@ -211,12 +213,58 @@ def random_block_swap(s: str) -> str:
     
     return new_data.decode('utf-8', errors='ignore')
 
+
+def delete_random_bytes(s: str) -> str:
+    """
+    随机删除相邻 N (1, 2, 4) 个字节，其中 N 为随机生成
+    注意：空串直接返回；数据不足 N 字节时退化为只删 1 字节
+    """
+    if not s:
+        return s
+
+    data = bytearray(s.encode('utf-8'))
+    length = len(data)
+
+    N = random.choice([1, 2, 4])
+    if length <= N:
+        N = 1  # 数据太短，退化为删除单字节
+
+    pos = random.randint(0, length - N)
+    del data[pos:pos + N]
+
+    return data.decode('utf-8', errors='ignore')
+
+
+def replace_random_bytes(s: str) -> str:
+    """
+    随机选取相邻 N (1, 2, 4) 个字节，替换为随机可打印 ASCII (0x20~0x7E)，其中 N 为随机生成
+    注意：空串直接返回；数据不足 N 字节时退化为替换 1 字节
+    """
+    if not s:
+        return s
+
+    data = bytearray(s.encode('utf-8'))
+    length = len(data)
+
+    N = random.choice([1, 2, 4])
+    if length < N:
+        N = 1  # 字节数不足，退化为替换单字节
+
+    pos = random.randint(0, length - N)
+    for i in range(N):
+        data[pos + i] = random.randint(0x20, 0x7E)
+
+    return data.decode('utf-8', errors='ignore')
+
+
 class Mutator:
 
     def __init__(self) -> None:
         """Constructor"""
         self.mutators = [
             insert_random_character,
+            delete_random_bytes,
+            replace_random_bytes,
             flip_random_bits,
             arithmetic_random_bytes,
             interesting_random_bytes,
@@ -225,6 +273,20 @@ class Mutator:
             random_block_swap
         ]
 
-    def mutate(self, inp: Any) -> Any:
+    def mutate(self, inp: str) -> str:
+        # 保证输入为 str
+        if not isinstance(inp, str):
+            inp = str(inp)
+
         mutator = random.choice(self.mutators)
-        return mutator(inp)
+        try:
+            result = mutator(inp)
+        except Exception:
+            result = inp  # 任意策略异常时回退原输入，保证 mutate 永不抛异常
+
+        # 保证输出为 str，并截断防止输入无限膨胀
+        if not isinstance(result, str):
+            result = inp
+        if len(result) > MAX_INPUT_LENGTH:
+            result = result[:MAX_INPUT_LENGTH]
+        return result
