@@ -1,4 +1,5 @@
-from typing import Set, Union
+import time
+from typing import Optional, Set
 
 from utils.coverage import Location
 
@@ -13,6 +14,9 @@ class Seed:
         # These will be needed for advanced power schedules
         self.coverage: Set[Location] = _coverage
         self.energy = 0.0
+        self.path_id: Optional[str] = None
+        self.created_at = time.time()
+        self.saved_path: Optional[str] = None
 
     def __str__(self) -> str:
         """Returns data as string representation of the seed"""
