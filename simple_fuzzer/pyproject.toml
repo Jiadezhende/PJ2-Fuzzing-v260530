@@ -1,0 +1,8 @@
+[project]
+name = "simple-fuzzer"
+version = "0.1.0"
+description = "A simple grey-box fuzzing framework for the PJ2 course experiment."
+readme = "README.md"
+requires-python = ">=3.10"
+# 本项目仅依赖 Python 标准库，无第三方依赖。
+dependencies = []
